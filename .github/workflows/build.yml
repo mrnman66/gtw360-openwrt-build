@@ -1,0 +1,101 @@
+name: Build OpenWrt Custom Firmware
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'OpenWrt branch or tag (e.g., v25.12.5)'
+        required: true
+        default: 'v25.12.5'
+
+jobs:
+  build:
+    name: Build Firmware
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential ccache ecj fastjar file g++ gawk \
+            gettext git java-propose-classpath libelf-dev libncurses5-dev \
+            libncursesw5-dev libssl-dev python3 python3-dev python3-pyelftools \
+            unzip wget python3-setuptools rsync subversion swig time xsltproc zlib1g-dev
+
+      - name: Clone official OpenWrt repository
+        run: |
+          git clone https://git.openwrt.org/openwrt/openwrt.git
+          cd openwrt
+          git checkout ${{ github.event.inputs.branch }}
+
+      - name: Copy custom files
+        run: |
+          rsync -av --delete custom/ openwrt/
+
+      - name: Update and install feeds
+        run: |
+          cd openwrt
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Generate configuration (.config)
+        run: |
+          cd openwrt
+          cat << 'EOF' > .config
+          CONFIG_TARGET_imx=y
+          CONFIG_TARGET_imx_cortexa7=y
+          CONFIG_TARGET_imx_cortexa7_DEVICE_geniatech_gtw360=y
+
+          CONFIG_PACKAGE_kmod-brcmfmac=y
+          CONFIG_PACKAGE_kmod-button-hotplug=y
+          CONFIG_PACKAGE_kmod-input-gpio-keys=y
+          CONFIG_PACKAGE_kmod-leds-gpio=y
+          CONFIG_PACKAGE_kmod-pps-gpio=y
+          CONFIG_PACKAGE_kmod-fs-vfat=y
+          CONFIG_PACKAGE_kmod-phy-micrel=y
+          CONFIG_PACKAGE_wpa-supplicant=y
+          CONFIG_PACKAGE_ca-certificates=y
+          CONFIG_PACKAGE_hostapd=y
+          CONFIG_PACKAGE_kmod-bluetooth=y
+          CONFIG_PACKAGE_bluez-daemon=y
+          CONFIG_PACKAGE_bluez-libs=y
+          CONFIG_PACKAGE_bluez-utils=y
+          EOF
+          make defconfig
+
+      - name: Download sources
+        run: |
+          cd openwrt
+          make download -j$(nproc)
+          find dl -size -1024c -exec rm -f {} \;
+
+      - name: Build firmware
+        run: |
+          cd openwrt
+          make -j$(nproc) || make -j1 V=s
+
+      - name: Generate release tag
+        id: tag
+        run: echo "tag=gtw360-$(date +%Y%m%d-%H%M%S)" >> $GITHUB_OUTPUT
+
+      - name: Publish to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: "OpenWrt GTW360 — ${{ github.event.inputs.branch }}"
+          body: |
+            Custom OpenWrt build for Geniatech GTW360
+            - Base: `${{ github.event.inputs.branch }}`
+            - Date: ${{ steps.tag.outputs.tag }}
+          files: |
+            openwrt/bin/targets/imx/cortexa7/*.bin
+            openwrt/bin/targets/imx/cortexa7/*.manifest
+            openwrt/.config
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
