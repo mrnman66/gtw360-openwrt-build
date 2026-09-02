@@ -61,17 +61,9 @@ jobs:
           CONFIG_TARGET_imx_cortexa7=y
           CONFIG_TARGET_imx_cortexa7_DEVICE_geniatech_gtw360=y
 
-          CONFIG_PACKAGE_kmod-brcmfmac=y
-          CONFIG_PACKAGE_kmod-button-hotplug=y
-          CONFIG_PACKAGE_kmod-input-gpio-keys=y
-          CONFIG_PACKAGE_kmod-leds-gpio=y
-          CONFIG_PACKAGE_kmod-pps-gpio=y
-          CONFIG_PACKAGE_kmod-fs-vfat=y
-          CONFIG_PACKAGE_kmod-phy-micrel=y
           CONFIG_PACKAGE_wpa-supplicant=y
           CONFIG_PACKAGE_ca-certificates=y
           CONFIG_PACKAGE_hostapd=y
-          CONFIG_PACKAGE_kmod-bluetooth=y
           CONFIG_PACKAGE_bluez-daemon=y
           CONFIG_PACKAGE_bluez-libs=y
           CONFIG_PACKAGE_bluez-utils=y
