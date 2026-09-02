@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       branch:
-        description: 'Official OpenWrt tag (e.g., v24.10.0, v23.05.4)'
+        description: 'Official OpenWrt tag (e.g., v25.12.5)'
         required: true
-        default: 'v24.10.0'
+        default: 'v25.12.5'
 
 jobs:
   build:
@@ -30,10 +30,8 @@ jobs:
       - name: Clone official OpenWrt (shallow clone)
         run: |
           echo "Cloning OpenWrt tag: ${{ github.event.inputs.branch }}"
-          # --depth 1 скачивает только нужный тег, экономя время и место
           git clone --depth 1 https://github.com/openwrt/openwrt.git -b ${{ github.event.inputs.branch }} openwrt
           
-          # Проверка на случай опечатки в названии тега
           if [ ! -f "openwrt/scripts/feeds" ]; then
             echo "ERROR: Tag '${{ github.event.inputs.branch }}' not found or clone failed!"
             echo "Check valid tags here: https://github.com/openwrt/openwrt/tags"
@@ -93,7 +91,7 @@ jobs:
 
       - name: Generate release tag
         id: tag
-        run: echo "tag=custom-gtw360-$(date +%Y%m%d-%H%M%S)" >> $GITHUB_OUTPUT
+        run: echo "tag=$(date +%Y%m%d-%H%M%S)" >> $GITHUB_OUTPUT
 
       - name: Publish to GitHub Release
         uses: softprops/action-gh-release@v2
