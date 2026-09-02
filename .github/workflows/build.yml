@@ -17,15 +17,17 @@ jobs:
       contents: write
 
     steps:
+
       # ============================================================
-      # Checkout
+      # Checkout custom repository
       # ============================================================
 
       - name: Checkout custom repository
         uses: actions/checkout@v4
 
+
       # ============================================================
-      # Dependencies
+      # Install build dependencies
       # ============================================================
 
       - name: Install build dependencies
@@ -60,6 +62,7 @@ jobs:
             xsltproc \
             zlib1g-dev
 
+
       # ============================================================
       # Clone official OpenWrt
       # ============================================================
@@ -67,7 +70,7 @@ jobs:
       - name: Clone official OpenWrt
         run: |
           echo "========================================"
-          echo "OPENWRT VERSION"
+          echo "CLONING OPENWRT"
           echo "========================================"
 
           echo "Requested tag: ${{ github.event.inputs.branch }}"
@@ -97,6 +100,7 @@ jobs:
             exit 1
           fi
 
+
       # ============================================================
       # Copy custom files
       # ============================================================
@@ -104,17 +108,22 @@ jobs:
       - name: Copy custom files
         run: |
           if [ -d "custom" ] && [ "$(ls -A custom)" ]; then
+
             echo "========================================"
             echo "COPYING CUSTOM FILES"
             echo "========================================"
 
             rsync -av custom/ openwrt/
+
           else
+
             echo "WARNING: custom/ folder is missing or empty."
+
           fi
 
+
       # ============================================================
-      # Show custom GTW360 files
+      # Inspect custom GTW360 configuration
       # ============================================================
 
       - name: Inspect GTW360 custom files
@@ -126,7 +135,7 @@ jobs:
           echo "========================================"
 
           echo
-          echo "--- target/linux/imx ---"
+          echo "--- target/linux/imx files ---"
 
           find target/linux/imx \
             -maxdepth 6 \
@@ -135,15 +144,17 @@ jobs:
             | sort
 
           echo
-          echo "--- GTW360 references ---"
+          echo "--- GTW360 / SDMA references ---"
 
           grep -R -n \
-            -E 'gtw360|sdma-imx6q|sdma-imx7d|CONFIG_EXTRA_FIRMWARE|DEVICE_PACKAGES' \
+            -E \
+            'gtw360|sdma-imx6q|sdma-imx7d|CONFIG_EXTRA_FIRMWARE|DEVICE_PACKAGES' \
             target/linux/imx \
             2>/dev/null || true
 
+
       # ============================================================
-      # Feeds
+      # Update feeds
       # ============================================================
 
       - name: Update and install feeds
@@ -157,8 +168,9 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
+
       # ============================================================
-      # Generate .config
+      # Generate OpenWrt configuration
       # ============================================================
 
       - name: Generate configuration
@@ -194,7 +206,7 @@ jobs:
 
           echo
           echo "========================================"
-          echo "FINAL OPENWRT CONFIG"
+          echo "TARGET CONFIG"
           echo "========================================"
 
           grep '^CONFIG_TARGET_' .config | sort
@@ -206,8 +218,9 @@ jobs:
 
           grep '^CONFIG_PACKAGE_' .config | sort
 
+
       # ============================================================
-      # Inspect SDMA configuration
+      # Inspect SDMA configuration before kernel build
       # ============================================================
 
       - name: Inspect SDMA configuration
@@ -219,25 +232,29 @@ jobs:
           echo "========================================"
 
           echo
-          echo "--- Search entire target/linux tree ---"
+          echo "--- target/linux/imx ---"
 
           grep -R -n \
-            -E 'CONFIG_EXTRA_FIRMWARE|sdma-imx6q|sdma-imx7d|CONFIG_IMX_SDMA' \
+            -E \
+            'CONFIG_EXTRA_FIRMWARE|CONFIG_IMX_SDMA|sdma-imx6q|sdma-imx7d' \
             target/linux/imx \
-            target/linux/generic \
             2>/dev/null || true
 
           echo
-          echo "--- config-default files ---"
+          echo "--- config-default ---"
 
           find target/linux/imx \
             -name 'config-default' \
             -type f \
             -print \
             -exec sh -c '
+              echo
               echo "===== $1 ====="
-              grep -E "CONFIG_EXTRA_FIRMWARE|CONFIG_IMX_SDMA" "$1" || true
+              grep -E \
+                "CONFIG_EXTRA_FIRMWARE|CONFIG_IMX_SDMA" \
+                "$1" || true
             ' _ {} \;
+
 
       # ============================================================
       # Download sources
@@ -255,6 +272,7 @@ jobs:
 
           find dl -size -1024c -exec rm -f {} \;
 
+
       # ============================================================
       # Prepare kernel
       # ============================================================
@@ -269,30 +287,17 @@ jobs:
 
           make target/linux/prepare V=s
 
+
       # ============================================================
-      # Configure kernel
+      # Inspect kernel source tree
       # ============================================================
 
-      - name: Configure kernel
+      - name: Inspect kernel tree
         run: |
           cd openwrt
 
           echo "========================================"
-          echo "CONFIGURING KERNEL"
-          echo "========================================"
-
-          make target/linux/configure V=s
-
-      # ============================================================
-      # Kernel diagnostics
-      # ============================================================
-
-      - name: Inspect generated kernel configuration
-        run: |
-          cd openwrt
-
-          echo "========================================"
-          echo "LOCATING KERNEL"
+          echo "KERNEL TREE"
           echo "========================================"
 
           KDIR="$(
@@ -310,121 +315,34 @@ jobs:
           fi
 
           echo
-          echo "========================================"
-          echo "KERNEL VERSION"
-          echo "========================================"
-
-          if [ -f "$KDIR/Makefile" ]; then
-            grep -E '^(VERSION|PATCHLEVEL|SUBLEVEL|EXTRAVERSION)' \
-              "$KDIR/Makefile" || true
-          fi
-
-          echo
-          echo "========================================"
-          echo "KERNEL .CONFIG"
-          echo "========================================"
-
-          if [ ! -f "$KDIR/.config" ]; then
-            echo "::error::Kernel .config does not exist"
-            exit 1
-          fi
-
-          echo "Kernel config:"
-          echo "$KDIR/.config"
-
-          echo
-          echo "--- SDMA / FIRMWARE ---"
+          echo "--- Kernel Makefile ---"
 
           grep -E \
-            'CONFIG_(EXTRA_FIRMWARE|IMX_SDMA)' \
-            "$KDIR/.config" \
+            '^(VERSION|PATCHLEVEL|SUBLEVEL|EXTRAVERSION)' \
+            "$KDIR/Makefile" \
             || true
 
           echo
-          echo "--- EXTRA FIRMWARE COMPLETE ---"
+          echo "--- Existing kernel config ---"
 
-          grep 'CONFIG_EXTRA_FIRMWARE' \
-            "$KDIR/.config" \
-            || true
-
-          echo
-          echo "--- MODULE CONFIG ---"
-
-          grep -E \
-            '^CONFIG_(BRCMFMAC|BUTTON|INPUT_GPIO|LEDS_GPIO|PPS_GPIO|SCSI|MMC|BT|BLUETOOTH|PHY)' \
-            "$KDIR/.config" \
-            || true
-
-          echo
-          echo "========================================"
-          echo "KERNEL CONFIG STATISTICS"
-          echo "========================================"
-
-          echo "Total config lines:"
-          wc -l "$KDIR/.config"
-
-          echo
-          echo "Built-in (=y):"
-          grep -c '=y' "$KDIR/.config" || true
-
-          echo
-          echo "Modules (=m):"
-          grep -c '=m' "$KDIR/.config" || true
-
-      # ============================================================
-      # Kernel config.set diagnostics
-      # ============================================================
-
-      - name: Inspect kernel config.set
-        run: |
-          cd openwrt
-
-          echo "========================================"
-          echo "CONFIG.SET"
-          echo "========================================"
-
-          KDIR="$(
-            find build_dir \
-              -type d \
-              -path '*/linux-6.12.94' \
-              | head -n1
-          )"
-
-          if [ -z "$KDIR" ]; then
-            echo "::error::Kernel directory not found"
-            exit 1
-          fi
-
-          echo "KDIR=$KDIR"
-
-          if [ -f "$KDIR/.config.set" ]; then
-            echo
-            echo "--- .config.set exists ---"
-
-            wc -l "$KDIR/.config.set"
-
-            echo
-            echo "--- SDMA / FIRMWARE ---"
+          if [ -f "$KDIR/.config" ]; then
+            echo ".config already exists"
 
             grep -E \
               'CONFIG_(EXTRA_FIRMWARE|IMX_SDMA)' \
-              "$KDIR/.config.set" \
+              "$KDIR/.config" \
               || true
-
-            echo
-            echo "--- CONFIG.SET HASH ---"
-
-            grep '=[ym]' "$KDIR/.config.set" \
-              | LC_ALL=C sort \
-              | md5sum
-
           else
-            echo "WARNING: .config.set does not exist yet."
-            echo "This may be generated later during the build."
+            echo "No kernel .config yet"
           fi
 
+
       # ============================================================
-      # Build kernel first
+      # Compile kernel
+      #
+      # IMPORTANT:
+      # This is the point where OpenWrt actually generates
+      # the kernel configuration and builds the kernel.
       # ============================================================
 
       - name: Compile kernel
@@ -437,16 +355,17 @@ jobs:
 
           make target/linux/compile -j$(nproc) V=s
 
+
       # ============================================================
-      # Inspect vermagic AFTER kernel compilation
+      # Kernel ABI diagnostics AFTER compile
       # ============================================================
 
-      - name: Verify kernel ABI
+      - name: Inspect generated kernel configuration and ABI
         run: |
           cd openwrt
 
           echo "========================================"
-          echo "KERNEL ABI / VERMAGIC"
+          echo "KERNEL ABI DIAGNOSTICS"
           echo "========================================"
 
           KDIR="$(
@@ -458,26 +377,116 @@ jobs:
 
           echo "KDIR=$KDIR"
 
-          echo
-          echo "--- .vermagic ---"
-
-          if [ -f "$KDIR/.vermagic" ]; then
-            VERMAGIC="$(cat "$KDIR/.vermagic")"
-
-            echo "Actual vermagic:"
-            echo "$VERMAGIC"
-          else
-            echo "WARNING: .vermagic not found."
+          if [ -z "$KDIR" ]; then
+            echo "::error::Kernel directory not found"
+            exit 1
           fi
 
+
           echo
-          echo "--- kernel.release ---"
+          echo "========================================"
+          echo "KERNEL .CONFIG"
+          echo "========================================"
+
+          if [ -f "$KDIR/.config" ]; then
+
+            echo "Found:"
+            echo "$KDIR/.config"
+
+            echo
+            echo "--- SDMA / FIRMWARE ---"
+
+            grep -E \
+              'CONFIG_(EXTRA_FIRMWARE|IMX_SDMA)' \
+              "$KDIR/.config" \
+              || true
+
+            echo
+            echo "--- EXTRA FIRMWARE ---"
+
+            grep \
+              'CONFIG_EXTRA_FIRMWARE' \
+              "$KDIR/.config" \
+              || true
+
+          else
+
+            echo "::warning::Kernel .config not found"
+
+          fi
+
+
+          echo
+          echo "========================================"
+          echo "KERNEL RELEASE"
+          echo "========================================"
 
           if [ -f "$KDIR/include/config/kernel.release" ]; then
             cat "$KDIR/include/config/kernel.release"
           else
             echo "kernel.release not found"
           fi
+
+
+          echo
+          echo "========================================"
+          echo "MODULES"
+          echo "========================================"
+
+          find "$KDIR" \
+            -type f \
+            -name '*.ko' \
+            | head -50 \
+            || true
+
+
+          echo
+          echo "========================================"
+          echo "VERMAGIC FROM KERNEL MODULES"
+          echo "========================================"
+
+          MOD="$(
+            find "$KDIR" \
+              -type f \
+              -name '*.ko' \
+              | head -n1
+          )"
+
+          if [ -n "$MOD" ]; then
+
+            echo "Module:"
+            echo "$MOD"
+
+            echo
+            modinfo "$MOD" 2>/dev/null \
+              | grep -E \
+                '^(vermagic|filename):' \
+              || true
+
+          else
+
+            echo "No .ko files found in kernel tree"
+
+          fi
+
+
+          echo
+          echo "========================================"
+          echo "KERNEL CONFIG HASH"
+          echo "========================================"
+
+          if [ -f "$KDIR/.config" ]; then
+
+            grep '=[ym]' "$KDIR/.config" \
+              | LC_ALL=C sort \
+              | md5sum
+
+          else
+
+            echo "Cannot calculate hash: .config missing"
+
+          fi
+
 
           echo
           echo "========================================"
@@ -486,11 +495,7 @@ jobs:
 
           echo "6.12.94-1-d945e97e7385a33292d68bb31d85cb74"
 
-          echo
-          echo "NOTE:"
-          echo "ABI mismatch is currently informational."
-          echo "The build will continue."
-      
+
       # ============================================================
       # Build complete firmware
       # ============================================================
@@ -500,13 +505,14 @@ jobs:
           cd openwrt
 
           echo "========================================"
-          echo "BUILDING FIRMWARE"
+          echo "BUILDING COMPLETE FIRMWARE"
           echo "========================================"
 
           make -j$(nproc) || make -j1 V=s
 
+
       # ============================================================
-      # Inspect final manifest
+      # Inspect final images
       # ============================================================
 
       - name: Inspect final firmware
@@ -529,15 +535,21 @@ jobs:
           echo "========================================"
 
           for manifest in bin/targets/imx/cortexa7/*.manifest; do
+
             if [ -f "$manifest" ]; then
+
               echo
               echo "===== $manifest ====="
+
               cat "$manifest"
+
             fi
+
           done
 
+
       # ============================================================
-      # Check requested packages
+      # Verify required packages
       # ============================================================
 
       - name: Check required packages
@@ -547,8 +559,6 @@ jobs:
           echo "========================================"
           echo "CHECKING REQUIRED PACKAGES"
           echo "========================================"
-
-          MANIFESTS="bin/targets/imx/cortexa7/*.manifest"
 
           for pkg in \
             kmod-brcmfmac \
@@ -566,15 +576,22 @@ jobs:
             bluez-libs \
             bluez-utils
           do
+
             echo
             echo "--- $pkg ---"
 
-            if grep -hE "^${pkg}([[:space:]]|$)" $MANIFESTS 2>/dev/null; then
+            if grep -hE \
+              "^${pkg}([[:space:]]|$)" \
+              bin/targets/imx/cortexa7/*.manifest \
+              2>/dev/null
+            then
               echo "FOUND"
             else
               echo "NOT FOUND"
             fi
+
           done
+
 
       # ============================================================
       # Final configuration
@@ -585,7 +602,7 @@ jobs:
           cd openwrt
 
           echo "========================================"
-          echo "FINAL CONFIG"
+          echo "FINAL OPENWRT CONFIG"
           echo "========================================"
 
           grep '^CONFIG_TARGET_' .config | sort
@@ -603,18 +620,21 @@ jobs:
           )"
 
           if [ -f "$KDIR/.config" ]; then
+
             grep -E \
               'CONFIG_(EXTRA_FIRMWARE|IMX_SDMA)' \
               "$KDIR/.config" \
               || true
+
           fi
 
           echo
           echo "========================================"
-          echo "FINAL .config MD5"
+          echo "FINAL OPENWRT .CONFIG MD5"
           echo "========================================"
 
           md5sum .config
+
 
       # ============================================================
       # Generate release tag
@@ -624,6 +644,7 @@ jobs:
         id: tag
         run: |
           echo "tag=gtw360-$(date +%Y%m%d-%H%M%S)" >> "$GITHUB_OUTPUT"
+
 
       # ============================================================
       # Publish release
