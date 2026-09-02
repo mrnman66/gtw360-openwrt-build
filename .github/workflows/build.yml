@@ -30,13 +30,23 @@ jobs:
       - name: Clone official OpenWrt (shallow clone)
         run: |
           echo "Cloning OpenWrt tag: ${{ github.event.inputs.branch }}"
-          git clone --depth 1 https://github.com/openwrt/openwrt.git -b ${{ github.event.inputs.branch }} openwrt
-          
+
+          git clone \
+            --depth 1 \
+            https://github.com/openwrt/openwrt.git \
+            -b "${{ github.event.inputs.branch }}" \
+            openwrt
+
           if [ ! -f "openwrt/scripts/feeds" ]; then
             echo "ERROR: Tag '${{ github.event.inputs.branch }}' not found or clone failed!"
-            echo "Check valid tags here: https://github.com/openwrt/openwrt/tags"
+            echo "Check valid tags here:"
+            echo "https://github.com/openwrt/openwrt/tags"
             exit 1
           fi
+
+          echo "OpenWrt commit:"
+          cd openwrt
+          git log -1 --oneline
 
       - name: Copy custom files
         run: |
@@ -53,22 +63,80 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Generate configuration (.config)
+      - name: Download official config.buildinfo
         run: |
           cd openwrt
-          cat << 'EOF' > .config
+
+          OPENWRT_TAG="${{ github.event.inputs.branch }}"
+          OPENWRT_VERSION="${OPENWRT_TAG#v}"
+
+          CONFIG_URL="https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/targets/imx/cortexa7/config.buildinfo"
+
+          echo "Official OpenWrt tag: ${OPENWRT_TAG}"
+          echo "OpenWrt release version: ${OPENWRT_VERSION}"
+          echo "Config URL: ${CONFIG_URL}"
+
+          wget \
+            --fail \
+            --location \
+            --show-progress \
+            "${CONFIG_URL}" \
+            -O .config
+
+          if [ ! -s ".config" ]; then
+            echo "ERROR: Failed to download config.buildinfo"
+            exit 1
+          fi
+
+          echo
+          echo "Downloaded official config.buildinfo:"
+          wc -l .config
+          ls -lh .config
+
+      - name: Configure GTW360 device
+        run: |
+          cd openwrt
+
+          echo "Preparing configuration for Geniatech GTW360..."
+
+          sed -i \
+            '/^CONFIG_TARGET_.*_DEVICE_.*=y$/d' \
+            .config
+
+          sed -i \
+            '/^CONFIG_TARGET_.*_DEVICE_.*_PACKAGES=/d' \
+            .config
+
+          cat >> .config << 'EOF'
+
           CONFIG_TARGET_imx=y
           CONFIG_TARGET_imx_cortexa7=y
           CONFIG_TARGET_imx_cortexa7_DEVICE_geniatech_gtw360=y
-
-          CONFIG_PACKAGE_wpa-supplicant=y
-          CONFIG_PACKAGE_ca-certificates=y
-          CONFIG_PACKAGE_hostapd=y
-          CONFIG_PACKAGE_bluez-daemon=y
-          CONFIG_PACKAGE_bluez-libs=y
-          CONFIG_PACKAGE_bluez-utils=y
           EOF
+
+          echo
+          echo "Running make defconfig..."
           make defconfig
+
+          echo
+          echo "===== FINAL TARGET CONFIGURATION ====="
+          grep -E '^CONFIG_TARGET_(imx|imx_cortexa7)' .config || true
+
+          echo
+          echo "===== OFFICIAL BUILDBOT OPTIONS ====="
+          grep -E '^CONFIG_(ALL_KMODS|ALL_NONSHARED|BUILDBOT|COLLECT_KERNEL_DEBUG|DEVEL|IB|IMAGEOPT|TARGET_PER_DEVICE_ROOTFS|AUTOREMOVE)=' .config || true
+
+          echo
+          echo "===== SELECTED PACKAGE CONFIGURATION ====="
+          grep '^CONFIG_PACKAGE_' .config | sort || true
+
+          echo
+          echo "===== EXTRA FIRMWARE ====="
+          grep '^CONFIG_EXTRA_FIRMWARE' target/linux/imx/cortexa7/config-default || true
+
+          echo
+          echo "===== FINAL CONFIGURATION SIZE ====="
+          wc -l .config
 
       - name: Download sources
         run: |
@@ -83,7 +151,8 @@ jobs:
 
       - name: Generate release tag
         id: tag
-        run: echo "tag=$(date +%Y%m%d-%H%M%S)" >> $GITHUB_OUTPUT
+        run: |
+          echo "tag=$(date +%Y%m%d-%H%M%S)" >> "$GITHUB_OUTPUT"
 
       - name: Publish to GitHub Release
         uses: softprops/action-gh-release@v2
@@ -92,12 +161,20 @@ jobs:
           name: "OpenWrt GTW360 — ${{ github.event.inputs.branch }}"
           body: |
             Custom OpenWrt build for Geniatech GTW360
-            - Base: `${{ github.event.inputs.branch }}`
-            - Date: ${{ steps.tag.outputs.tag }}
+
+            - Base OpenWrt tag: `${{ github.event.inputs.branch }}`
+            - Target: `imx/cortexa7`
+            - Device: `geniatech_gtw360`
+            - Configuration: official `config.buildinfo`
+            - Date: `${{ steps.tag.outputs.tag }}`
+
           files: |
             openwrt/bin/targets/imx/cortexa7/*.bin
+            openwrt/bin/targets/imx/cortexa7/*-zImage
             openwrt/bin/targets/imx/cortexa7/*.manifest
             openwrt/.config
+
           fail_on_unmatched_files: false
+
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
