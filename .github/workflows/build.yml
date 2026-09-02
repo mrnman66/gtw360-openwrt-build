@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       branch:
-        description: 'OpenWrt branch or tag (e.g., v25.12.5)'
+        description: 'Official OpenWrt tag (e.g., v25.12.5)'
         required: true
         default: 'v25.12.5'
 
@@ -16,7 +16,7 @@ jobs:
       contents: write
 
     steps:
-      - name: Checkout repository
+      - name: Checkout custom repository
         uses: actions/checkout@v4
 
       - name: Install build dependencies
@@ -27,15 +27,25 @@ jobs:
             libncursesw5-dev libssl-dev python3 python3-dev python3-pyelftools \
             unzip wget python3-setuptools rsync subversion swig time xsltproc zlib1g-dev
 
-      - name: Clone official OpenWrt repository
+      - name: Clone official OpenWrt (shallow clone)
         run: |
-          git clone https://git.openwrt.org/openwrt/openwrt.git
-          cd openwrt
-          git checkout ${{ github.event.inputs.branch }}
+          echo "Cloning OpenWrt tag: ${{ github.event.inputs.branch }}"
+          git clone --depth 1 https://github.com/openwrt/openwrt.git -b ${{ github.event.inputs.branch }} openwrt
+          
+          if [ ! -f "openwrt/scripts/feeds" ]; then
+            echo "ERROR: Tag '${{ github.event.inputs.branch }}' not found or clone failed!"
+            echo "Check valid tags here: https://github.com/openwrt/openwrt/tags"
+            exit 1
+          fi
 
       - name: Copy custom files
         run: |
-          rsync -av --delete custom/ openwrt/
+          if [ -d "custom" ] && [ "$(ls -A custom)" ]; then
+            echo "Copying custom files to OpenWrt tree..."
+            rsync -av custom/ openwrt/
+          else
+            echo "WARNING: custom/ folder is missing or empty."
+          fi
 
       - name: Update and install feeds
         run: |
@@ -89,7 +99,7 @@ jobs:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: "OpenWrt GTW360 — ${{ github.event.inputs.branch }}"
           body: |
-            Custom OpenWrt build for Geniatech GTW360
+            OpenWrt build for Geniatech GTW360
             - Base: `${{ github.event.inputs.branch }}`
             - Date: ${{ steps.tag.outputs.tag }}
           files: |
