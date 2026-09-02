@@ -22,19 +22,28 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential ccache ecj fastjar file g++ gawk \
+          sudo apt-get install -y \
+            build-essential ccache ecj fastjar file g++ gawk \
             gettext git java-propose-classpath libelf-dev libncurses5-dev \
             libncursesw5-dev libssl-dev python3 python3-dev python3-pyelftools \
             unzip wget python3-setuptools rsync subversion swig time xsltproc zlib1g-dev
 
-      - name: Clone official OpenWrt (shallow clone)
+      - name: Clone official OpenWrt
         run: |
           echo "Cloning OpenWrt tag: ${{ github.event.inputs.branch }}"
-          git clone --depth 1 https://github.com/openwrt/openwrt.git -b ${{ github.event.inputs.branch }} openwrt
-          
-          if [ ! -f "openwrt/scripts/feeds" ]; then
-            echo "ERROR: Tag '${{ github.event.inputs.branch }}' not found or clone failed!"
-            echo "Check valid tags here: https://github.com/openwrt/openwrt/tags"
+
+          git clone --depth 1 \
+            https://github.com/openwrt/openwrt.git \
+            -b "${{ github.event.inputs.branch }}" \
+            openwrt
+
+          cd openwrt
+
+          echo "OpenWrt revision:"
+          git log -1 --oneline
+
+          if [ ! -f "scripts/feeds" ]; then
+            echo "ERROR: OpenWrt clone failed!"
             exit 1
           fi
 
@@ -47,15 +56,35 @@ jobs:
             echo "WARNING: custom/ folder is missing or empty."
           fi
 
+      - name: Show custom kernel configuration
+        run: |
+          echo "===== CUSTOM CONFIG-DEFAULT ====="
+
+          if [ -f "openwrt/target/linux/imx/cortexa7/config-default" ]; then
+            grep -nE \
+              'CONFIG_EXTRA_FIRMWARE|CONFIG_IMX_SDMA' \
+              openwrt/target/linux/imx/cortexa7/config-default || true
+          fi
+
+          echo
+          echo "===== CUSTOM FILES ====="
+
+          find custom/target/linux/imx \
+            -type f \
+            -maxdepth 5 \
+            -print 2>/dev/null || true
+
       - name: Update and install feeds
         run: |
           cd openwrt
+
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Generate configuration (.config)
+      - name: Generate configuration
         run: |
           cd openwrt
+
           cat << 'EOF' > .config
           CONFIG_TARGET_imx=y
           CONFIG_TARGET_imx_cortexa7=y
@@ -76,36 +105,214 @@ jobs:
           CONFIG_PACKAGE_bluez-libs=y
           CONFIG_PACKAGE_bluez-utils=y
           EOF
+
           make defconfig
+
+      - name: Inspect generated OpenWrt configuration
+        run: |
+          cd openwrt
+
+          echo "========================================"
+          echo "OPENWRT VERSION"
+          echo "========================================"
+          git describe --tags --always
+          git log -1 --oneline
+
+          echo
+          echo "========================================"
+          echo "TARGET CONFIG"
+          echo "========================================"
+          grep '^CONFIG_TARGET_' .config || true
+
+          echo
+          echo "========================================"
+          echo "SELECTED PACKAGES"
+          echo "========================================"
+          grep '^CONFIG_PACKAGE_' .config | sort || true
+
+          echo
+          echo "========================================"
+          echo "IMX CONFIG DEFAULT"
+          echo "========================================"
+          grep -nE \
+            'CONFIG_EXTRA_FIRMWARE|CONFIG_IMX_SDMA' \
+            target/linux/imx/cortexa7/config-default || true
+
+          echo
+          echo "========================================"
+          echo "CONFIG FILE HASH"
+          echo "========================================"
+          md5sum .config
 
       - name: Download sources
         run: |
           cd openwrt
+
           make download -j$(nproc)
+
           find dl -size -1024c -exec rm -f {} \;
+
+      - name: Prepare kernel and calculate ABI
+        run: |
+          cd openwrt
+
+          echo "Preparing kernel..."
+
+          make target/linux/prepare -j$(nproc) V=s
+
+          echo
+          echo "========================================"
+          echo "KERNEL BUILD DIRECTORY"
+          echo "========================================"
+
+          find build_dir \
+            -maxdepth 5 \
+            -type d \
+            -path '*/linux-6.12.94' \
+            -print || true
+
+          echo
+          echo "========================================"
+          echo "KERNEL CONFIG"
+          echo "========================================"
+
+          find build_dir \
+            -path '*/linux-6.12.94/.config' \
+            -exec sh -c '
+              echo "===== $1 ====="
+              grep -E "CONFIG_EXTRA_FIRMWARE|CONFIG_IMX_SDMA" "$1" || true
+            ' _ {} \;
+
+          echo
+          echo "========================================"
+          echo "KERNEL CONFIG.SET"
+          echo "========================================"
+
+          find build_dir \
+            -path '*/linux-6.12.94/.config.set' \
+            -exec sh -c '
+              echo "===== $1 ====="
+              grep -E "CONFIG_EXTRA_FIRMWARE|CONFIG_IMX_SDMA" "$1" || true
+            ' _ {} \;
+
+          echo
+          echo "========================================"
+          echo "VERMAGIC"
+          echo "========================================"
+
+          find build_dir \
+            -path '*/linux-6.12.94/.vermagic' \
+            -exec sh -c '
+              echo "===== $1 ====="
+              cat "$1"
+            ' _ {} \;
+
+          echo
+          echo "========================================"
+          echo "EXPECTED OFFICIAL ABI"
+          echo "========================================"
+
+          echo "6.12.94-1-d945e97e7385a33292d68bb31d85cb74"
+
+      - name: Verify kernel ABI
+        run: |
+          cd openwrt
+
+          EXPECTED="d945e97e7385a33292d68bb31d85cb74"
+
+          VERMAGIC="$(
+            find build_dir \
+              -path '*/linux-6.12.94/.vermagic' \
+              -exec cat {} \; \
+              | head -n1
+          )"
+
+          echo "Expected vermagic: $EXPECTED"
+          echo "Actual vermagic:   $VERMAGIC"
+
+          if [ "$VERMAGIC" != "$EXPECTED" ]; then
+            echo "::warning::Kernel ABI mismatch"
+            echo "The build will continue so we can inspect the difference."
+          else
+            echo "Kernel ABI matches official OpenWrt 25.12.5."
+          fi
 
       - name: Build firmware
         run: |
           cd openwrt
+
           make -j$(nproc) || make -j1 V=s
 
-      - name: Generate release tag
-        id: tag
-        run: echo "tag=gtw360-$(date +%Y%m%d-%H%M%S)" >> $GITHUB_OUTPUT
+      - name: Inspect generated packages
+        run: |
+          cd openwrt
+
+          echo "========================================"
+          echo "GTW360 IMAGE MANIFESTS"
+          echo "========================================"
+
+          find bin/targets/imx/cortexa7 \
+            -name '*.manifest' \
+            -print \
+            -exec sh -c '
+              echo
+              echo "===== $1 ====="
+              cat "$1"
+            ' _ {} \;
+
+          echo
+          echo "========================================"
+          echo "CHECK REQUIRED PACKAGES"
+          echo "========================================"
+
+          for pkg in \
+            kmod-brcmfmac \
+            kmod-button-hotplug \
+            kmod-input-gpio-keys \
+            kmod-leds-gpio \
+            kmod-pps-gpio \
+            kmod-fs-vfat \
+            kmod-phy-micrel \
+            wpa-supplicant \
+            ca-certificates \
+            hostapd \
+            kmod-bluetooth \
+            bluez-daemon \
+            bluez-libs \
+            bluez-utils
+          do
+            echo
+            echo "--- $pkg ---"
+            grep -h "^$pkg " bin/targets/imx/cortexa7/*.manifest 2>/dev/null || \
+              echo "NOT FOUND"
+          done
 
       - name: Publish to GitHub Release
+        id: tag
+        run: |
+          echo "tag=gtw360-$(date +%Y%m%d-%H%M%S)" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: "OpenWrt GTW360 — ${{ github.event.inputs.branch }}"
           body: |
             OpenWrt build for Geniatech GTW360
+
             - Base: `${{ github.event.inputs.branch }}`
             - Date: ${{ steps.tag.outputs.tag }}
+            - Target: imx/cortexa7
+            - Device: geniatech_gtw360
+            - Expected official kernel ABI:
+              `6.12.94-1-d945e97e7385a33292d68bb31d85cb74`
+
           files: |
             openwrt/bin/targets/imx/cortexa7/*.bin
             openwrt/bin/targets/imx/cortexa7/*.manifest
             openwrt/.config
+
           fail_on_unmatched_files: false
+
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
