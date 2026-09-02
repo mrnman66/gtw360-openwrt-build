@@ -97,15 +97,14 @@ jobs:
         run: |
           cd openwrt
 
-          echo "Preparing configuration for Geniatech GTW360..."
+          echo "===== ORIGINAL DEVICE SELECTION ====="
+          grep '^CONFIG_TARGET_.*_DEVICE_.*=y$' .config || true
 
-          sed -i \
-            '/^CONFIG_TARGET_.*_DEVICE_.*=y$/d' \
-            .config
+          echo
+          echo "Removing official device selection..."
 
-          sed -i \
-            '/^CONFIG_TARGET_.*_DEVICE_.*_PACKAGES=/d' \
-            .config
+          sed -i '/^CONFIG_TARGET_.*_DEVICE_.*=y$/d' .config
+          sed -i '/^CONFIG_TARGET_.*_DEVICE_.*_PACKAGES=/d' .config
 
           cat >> .config << 'EOF'
 
@@ -113,6 +112,10 @@ jobs:
           CONFIG_TARGET_imx_cortexa7=y
           CONFIG_TARGET_imx_cortexa7_DEVICE_geniatech_gtw360=y
           EOF
+
+          echo
+          echo "===== CONFIG BEFORE DEFCONFIG ====="
+          grep '^CONFIG_TARGET_.*=y$' .config | sort
 
           echo
           echo "Running make defconfig..."
