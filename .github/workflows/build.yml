@@ -81,8 +81,6 @@ jobs:
           sed -i '/^CONFIG_TARGET_DEVICE_imx_cortexa7_DEVICE_technexion_imx7d-pico-pi=y$/d' .config
           sed -i '/^CONFIG_TARGET_DEVICE_PACKAGES_imx_cortexa7_DEVICE_technexion_imx7d-pico-pi=/d' .config
 
-          echo "CONFIG_TARGET_imx=y" >> .config
-          echo "CONFIG_TARGET_imx_cortexa7=y" >> .config
           echo "CONFIG_TARGET_imx_cortexa7_DEVICE_geniatech_gtw360=y" >> .config
 
           echo "Running make defconfig..."
