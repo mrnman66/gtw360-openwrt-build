@@ -104,14 +104,6 @@ jobs:
           echo "===== BUILD OUTPUT ====="
           ls -lah bin/targets/imx/cortexa7/
 
-          echo
-          echo "===== ZIMAGE ====="
-          ls -lah bin/targets/imx/cortexa7/*-zImage 2>/dev/null || true
-
-          echo
-          echo "===== MANIFEST ====="
-          ls -lah bin/targets/imx/cortexa7/*.manifest 2>/dev/null || true
-
       - name: Generate release tag
         id: tag
         run: |
