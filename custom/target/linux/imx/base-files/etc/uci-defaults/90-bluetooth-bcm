@@ -1,0 +1,41 @@
+. /lib/functions.sh
+
+cat << 'EOF' > /etc/init.d/bt-bcm
+#!/bin/sh /etc/rc.common
+START=98
+USE_PROCD=1
+
+start_service() {
+    modprobe hci_uart 2>/dev/null
+    
+    [ -d /sys/class/gpio/gpio129 ] || echo 129 > /sys/class/gpio/export
+    echo out > /sys/class/gpio/gpio129/direction
+    echo 1 > /sys/class/gpio/gpio129/value
+    sleep 1
+
+    /usr/bin/brcm-loader --patchram /lib/firmware/brcm/BCM4345C0.hcd \
+                                --no2bytes \
+                                --baudrate 3000000 \
+                                /dev/ttymxc1
+
+    procd_open_instance
+    procd_set_param command /usr/bin/btattach -B /dev/ttymxc1 -P h4 -S 3000000
+    procd_set_param respawn
+    procd_close_instance
+
+    sleep 2
+    hciconfig hci0 up 2>/dev/null
+}
+
+stop_service() {
+    if [ -d /sys/class/gpio/gpio129 ]; then
+        echo 0 > /sys/class/gpio/gpio129/value
+    fi
+}
+EOF
+
+chmod +x /etc/init.d/bt-bcm
+/etc/init.d/bt-bcm enable
+chmod +x /usr/bin/brcm-loader 2>/dev/null
+
+exit 0
