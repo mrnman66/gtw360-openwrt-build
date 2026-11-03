@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       branch:
-        description: 'Official OpenWrt tag (e.g., v25.12.5)'
+        description: 'Official OpenWrt tag (e.g., v25.12.6)'
         required: true
-        default: 'v25.12.5'
+        default: 'v25.12.6'
 
 jobs:
   build:
